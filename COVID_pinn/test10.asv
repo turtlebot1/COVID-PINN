@@ -1,0 +1,155 @@
+% %% ================== SLIR PINN over 50×50 grid (Non-Scaled, Hard IC) ==================
+% clear; clc; close all
+% rng(1)
+% 
+% %% ------------------- Provided temporal data (S, I, R) ------------------------
+% S_data = [1133506.1,1133238.1,1132784.1,1132363.1,1131902.1,1131453.1,...
+%           1130944.1,1130585.1,1130219.1,1129600.1,1129022.1,1128384.1,...
+%           1127811.1,1127220.1,1126773.1,1126366.1,1125672.1,1125055.1,...
+%           1124469.1,1123874.1,1123356.1,1122912.1,1122457.1,1121758.1,...
+%           1121097.1,1120418.1,1120173.1,1119553.1,1119063.1,1118561.1,...
+%           1117712.1,1116949.1,1116297.1,1115622.1,1114949.1,1114404.1,...
+%           1113954.1,1113123.1,1112412.1,1111752.1,1111131.1,1110575.1,...
+%           1110107.1,1109719.1,1109041.1];
+% 
+% I_data = [2725.462016,2738.692403,2968.938481,3211.787696,3597.357539,...
+%           3954.831508,4331.158302,4517.030060,4811.965692,5364.145074,...
+%           5925.459402,6549.137958,6935.876807,7294.945205,7387.303010,...
+%           7437.395396,7758.752438,8152.126439,8458.252734,8554.534487,...
+%           8523.939376,8359.077509,8383.914056,8708.426648,9220.442922,...
+%           9830.172268,9804.632503,10055.025349,10227.002882,10588.772987,...
+%           11432.603097,12328.458612,12985.960478,13402.650777,13614.175818,...
+%           13578.297349,13933.353467,14545.050414,15073.407777,15408.663166,...
+%           15289.450156,14980.323141,14749.496246,14664.378627,15077.335071];
+% 
+% R_data = [1625.307597,1845.061519,2016.212304,2089.642461,2176.168492,...
+%           2303.841698,2474.969940,2545.034308,2602.854926,2614.540598,...
+%           2621.862042,2805.123193,3032.054795,3382.696990,3735.604604,...
+%           4103.247562,4319.873561,4596.747266,5087.465513,5629.060624,...
+%           6229.922491,6657.085944,7022.573352,7161.557078,7223.827732,...
+%           7489.367497,7849.974651,8162.997118,8300.227013,8294.396903,...
+%           8160.541388,8148.039522,8400.349223,8854.824182,9424.702651,...
+%           9512.646533,9724.949586,9894.592223,10212.336834,10944.549844,...
+%           11799.676859,12489.503754,12953.621373,13203.664929,13213.770865];
+% 
+% days = 1:numel(S_data); 
+% T    = numel(days);
+% 
+% %% ------------------- Grid (interior 48×48 = 2304 cells) ----------------
+% Nx = 50; Ny = 50;
+% xg = linspace(0,50,Nx); yg = linspace(0,50,Ny);
+% [ix_in,iy_in] = deal(2:Nx-1, 2:Ny-1);
+% [Xint, Yint]  = meshgrid(xg(ix_in), yg(iy_in));
+% nCells = numel(Xint);  % 2304
+% 
+% %% ------------------- Expand scalar SIR into spatial fields -------------
+% % Replace with real spatial fields if you have them
+% S_fields = zeros(nCells,T); I_fields = zeros(nCells,T); R_fields = zeros(nCells,T);
+% for k=1:T
+%     noiseS = 0.95+0.10*rand(nCells,1); noiseS = noiseS/mean(noiseS);
+%     noiseI = 0.95+0.10*rand(nCells,1); noiseI = noiseI/mean(noiseI);
+%     noiseR = 0.95+0.10*rand(nCells,1); noiseR = noiseR/mean(noiseR);
+%     S_fields(:,k) = S_data(k)*noiseS;
+%     I_fields(:,k) = I_data(k)*noiseI;
+%     R_fields(:,k) = R_data(k)*noiseR;
+% end
+% 
+% %% ------------------- Normalization stats -------------------------------
+% muX = mean([S_fields(:) I_fields(:) R_fields(:)],1)';
+% sdX = std([S_fields(:) I_fields(:) R_fields(:)],0,1)' + 1e-8;
+% 
+% %% ------------------- Physics parameters --------------------------------
+% params.DS=6.7e-4; params.DL=0.0816; params.DI=0.0062; params.DR=5.3e-8;
+% params.lambda=0.68; params.theta=2.82e-5; params.phi=4.69e-4;
+% params.delta=1.0e-5; params.omega=0.0517; params.sigma=0.5;
+% params.dt=1;  % one day step
+% params.lambda_data=1.0; params.lambda_phys=0.1;
+% 
+% %% ------------------- Define LSTM (dlNetwork) ---------------------------
+% layers = [ ...
+%     sequenceInputLayer(3,"Name","in")
+%     lstmLayer(128,"OutputMode","sequence","Name","lstm1")
+%     dropoutLayer(0.1,"Name","drop1")
+%     lstmLayer(128,"OutputMode","sequence","Name","lstm2")
+%     fullyConnectedLayer(3,"Name","fc") ];
+% 
+% net = dlnetwork(layerGraph(layers));
+% 
+% %% ------------------- Helper: physics residual function -----------------
+% function f = physicsResidual(S,I,R,params)
+%     % No diffusion here; add neighbor coupling if needed
+%     fS = params.lambda - params.theta.*S - params.phi.*S.*I;
+%     fI = params.phi.*S.*I - params.delta.*I - params.sigma.*I;  % sigma term approx
+%     fR = -params.theta.*R + params.omega.*I;
+%     f = [fS; fI; fR];  % 3×nCells
+% end
+% 
+% %% ------------------- Loss function (data + physics) --------------------
+% function [loss,gradients] = modelLoss(net,Xseq,Ytrue,muX,sdX,params)
+%     % Xseq: input seq [3×1×batch], Ytrue: true next step [3×batch]
+%     Ypred_norm = forward(net,Xseq);  % 3×1×batch
+%     Ypred_norm = squeeze(Ypred_norm); % 3×batch
+%     Ypred = Ypred_norm .* sdX + muX;  % un-normalize
+% 
+%     % Data loss
+%     mseData = mean((Ypred - Ytrue).^2,"all");
+% 
+%     % Physics loss (residuals)
+%     f = physicsResidual(Ypred(1,:),Ypred(2,:),Ypred(3,:),params);
+%     msePhys = mean(f.^2,"all");
+% 
+%     loss = params.lambda_data*mseData + params.lambda_phys*msePhys;
+%     gradients = dlgradient(loss,net.Learnables);
+% end
+% 
+% %% ------------------- Training loop -------------------------------------
+% numEpochs=2000; learnRate=1e-3; batchSize=256;
+% avgGrad=[]; avgGradSq=[];
+% 
+% for epoch=1:numEpochs
+%     % Create random mini-batch of cells and timesteps
+%     idxCells = randperm(nCells,batchSize);
+%     t = randi([1,T-1],1);  % pick random day
+% 
+%     % Inputs (previous day, normalized)
+%     X = [S_fields(idxCells,t)'; I_fields(idxCells,t)'; R_fields(idxCells,t)'];
+%     Xnorm = (X - muX) ./ sdX;
+%     Xseq = dlarray(reshape(Xnorm,[3 1 batchSize]),"CBT");
+% 
+%     % Targets (next day, true un-normalized)
+%     Ytrue = [S_fields(idxCells,t+1)'; I_fields(idxCells,t+1)'; R_fields(idxCells,t+1)'];
+% 
+%     [loss,gradients] = dlfeval(@modelLoss,net,Xseq,Ytrue,muX,sdX,params);
+%     [net,avgGrad,avgGradSq] = adamupdate(net,gradients,avgGrad,avgGradSq,epoch,learnRate);
+% 
+%     if mod(epoch,10)==0
+%         fprintf("Epoch %d, Loss %.4e\n",epoch,extractdata(loss));
+%     end
+% end
+% 
+% %% ------------------- Rollout (autoregressive from Day 1) ----------------
+% S_pred=zeros(nCells,T); I_pred=zeros(nCells,T); R_pred=zeros(nCells,T);
+% S_pred(:,1)=S_fields(:,1); I_pred(:,1)=I_fields(:,1); R_pred(:,1)=R_fields(:,1);
+% 
+% for t=2:T
+%     X = [S_pred(:,t-1)'; I_pred(:,t-1)'; R_pred(:,t-1)'];
+%     Xnorm = (X - muX) ./ sdX;
+%     Xseq = dlarray(reshape(Xnorm,[3 1 nCells]),"CBT");
+%     Ypred_norm = predict(net,Xseq);
+%     Ypred_norm = squeeze(Ypred_norm);
+%     Ypred = Ypred_norm .* sdX + muX;
+% 
+%     Ypred = extractdata(Ypred);   % convert dlarray → numeric
+% 
+%     S_pred(:,t) = Ypred(1,:)';
+%     I_pred(:,t) = Ypred(2,:)';
+%     R_pred(:,t) = Ypred(3,:)';
+% end
+% 
+% %% ------------------- Plot mean curves ----------------------------------
+% S_mean=mean(S_pred,1); I_mean=mean(I_pred,1); R_mean=mean(R_pred,1);
+% figure;
+% subplot(3,1,1); plot(days,S_data,'k--','LineWidth',2); hold on; plot(days,S_mean,'r-','LineWidth',2); ylabel('S'); legend('True','PI-LSTM');
+% subplot(3,1,2); plot(days,I_data,'k--','LineWidth',2); hold on; plot(days,I_mean,'r-','LineWidth',2); ylabel('I'); legend('True','PI-LSTM');
+% subplot(3,1,3); plot(days,R_data,'k--','LineWidth',2); hold on; plot(days,R_mean,'r-','LineWidth',2); ylabel('R'); xlabel('Day'); legend('True','PI-LSTM');
+
