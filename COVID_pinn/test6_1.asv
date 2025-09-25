@@ -5,7 +5,7 @@ clear; clc;
 beta = 0.1; gamma = 0.1;
 D_S = 0.05; D_I = 0.05; D_R = 0.05;
 
-Nx = 10; Ny = 10; Nt = 50;
+Nx = 10; Ny = 10; Nt = 5;
 x = linspace(0,1,Nx);
 y = linspace(0,1,Ny);
 t = linspace(0,1,Nt);
@@ -33,7 +33,7 @@ layers = [
 net = dlnetwork(layers);
 
 %% Training setup
-numEpochs = 10000;
+numEpochs = 1;
 learnRate = 8e-3;
 avgGrad = []; avgSqGrad = [];
 % tInt = dlarray(collocInt(:,1)','CB');
@@ -41,19 +41,19 @@ avgGrad = []; avgSqGrad = [];
 % yInt = dlarray(collocInt(:,3)','CB');
 
 % Create training progress monitor
-monitor = trainingProgressMonitor( ...
-    Metrics="Loss", ...
-    Info=["Epoch","LearnRate"], ...
-    XLabel="Epoch");
+% monitor = trainingProgressMonitor( ...
+%     Metrics="Loss", ...
+%     Info=["Epoch","LearnRate"], ...
+%     XLabel="Epoch");
 
 %% Finite-difference baseline (true simulation)
-S_true = 20*ones(Nt,Nx,Ny); 
+S_true = ones(Nt,Nx,Ny); 
 % enforce zero Dirichlet BCs for all SIR compartments
 S_true(:,1,:)=0; S_true(:,end,:)=0; S_true(:,:,1)=0; S_true(:,:,end)=0;
 I_true = zeros(Nt,Nx,Ny); 
 R_true = zeros(Nt,Nx,Ny);
 
-I_true(1,round(Nx/2),round(Ny/2)) = 20; % infection bump at center
+I_true(1,round(Nx/2),round(Ny/2)) = 1; % infection bump at center
 dt = 0.1;
 for k = 2:Nt
     S_prev = squeeze(S_true(k-1,:,:));
@@ -128,7 +128,7 @@ for epoch = 1:numEpochs
     beta = 0.1; gamma = 0.1;
     D_S = 0.05; D_I = 0.05; D_R = 0.05;
     [loss, grads, Ybd, Yic, S0, fS, fI, fR, test1, test2, test3, test4] = dlfeval(@modelLoss, net, tInt, xInt, yInt, ...
-                             collocBd, collocIC, collocInt, ...
+                             collocBd, collocIC, ...
                              beta, gamma, D_S, D_I, D_R, ...
                              Xdata, Sdata, Idata, Rdata, epoch);
 
@@ -136,14 +136,14 @@ for epoch = 1:numEpochs
     epoch,learnRate);
 
     % Update monitor
-    recordMetrics(monitor,epoch,Loss=double(loss));
-    updateInfo(monitor,Epoch=epoch,LearnRate=learnRate);
-    monitor.Progress = 100*epoch/numEpochs;
-
-    % Allow early stopping from GUI
-    if monitor.Stop
-        break
-    end
+    % recordMetrics(monitor,epoch,Loss=double(loss));
+    % updateInfo(monitor,Epoch=epoch,LearnRate=learnRate);
+    % monitor.Progress = 100*epoch/numEpochs;
+    % 
+    % % Allow early stopping from GUI
+    % if monitor.Stop
+    %     break
+    % end
 end
 
 %% PINN Prediction
@@ -309,13 +309,13 @@ test4 = extractdata(test4);
 % end
 
 %% Loss with including data loss
-function [loss,grads, Ybd, Yic, S0, fS, fI, fR, test1, test2, test3, test4] = modelLoss(net,t,x,y,collocBd,collocIC,collocInt, ...
+function [loss,grads, Ybd, Yic, S0, fS, fI, fR, test1, test2, test3, test4] = modelLoss(net,t,x,y,collocBd,collocIC, ...
                                   beta,gamma,D_S,D_I,D_R, ...
                                   Xdata,Sdata,Idata,Rdata,epoch)
 
     % ---------------- Interior collocation points ----------------
-    % Xall = dlarray([t; x; y],'CB');   % [3 × N]
-    Xall = dlarray(single(collocInt)', 'CB');
+    Xall = dlarray([t; x; y],'CB');   % [3 × N]
+    Xall = dlarray(single(collocInt))
     Yall = forward(net,Xall);         % [3 × N]
 
     S = Yall(1,:); I = Yall(2,:); R = Yall(3,:);
@@ -359,7 +359,7 @@ function [loss,grads, Ybd, Yic, S0, fS, fI, fR, test1, test2, test3, test4] = mo
     % ---------------- Initial condition ----------------
     Xic = dlarray(single(collocIC)','CB');
     Yic = forward(net,Xic);
-    S0 = 20*ones(size(Yic(1,:)),'like',Yic);   % Susceptibles in thousands
+    S0 = ones(size(Yic(1,:)),'like',Yic);   % Susceptibles in thousands
     Nx = 10; Ny = 10;
 
     % Zero out the boundaries (as before)
@@ -395,7 +395,7 @@ function [loss,grads, Ybd, Yic, S0, fS, fI, fR, test1, test2, test3, test4] = mo
     [~,centerIdx] = min((x_coords-0.5).^2 + (y_coords-0.5).^2);
 
     I0 = zeros(size(Yic(2,:)),'like',Yic);
-    I0(centerIdx) = 20;
+    I0(centerIdx) = 1;
     R0 = zeros(size(Yic(3,:)),'like',Yic);       % Initially recovered
     lossIC = mse(Yic(1,:), S0) ...
        + mse(Yic(2,:), I0) ...
@@ -417,7 +417,7 @@ function [loss,grads, Ybd, Yic, S0, fS, fI, fR, test1, test2, test3, test4] = mo
     wPDE = min(1.0, epoch/300);  % slowly ramp PDE weight
 
     % ---------------- Total loss ----------------
-    loss = lossPDE + lossIC + 5*lossData + lossBC;
+    loss = lossPDE + lossIC + 3*lossData + lossBC;
 
     fprintf('Epoch %d | lossPDE: %.3f | lossBC: %.3f | lossIC: %.3f | lossData: %.3f\n',...
             epoch, extractdata(lossPDE), extractdata(lossBC), ...
