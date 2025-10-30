@@ -5,7 +5,7 @@ clear; clc;
 beta = 0.1; gamma = 0.1;
 D_S = 0.05; D_I = 0.5; D_R = 0.05;
 
-Nx = 10; Ny = 10; Nt = 5;
+Nx = 5; Ny = 5; Nt = 5;
 x = linspace(0,1,Nx);
 y = linspace(0,1,Ny);
 t = linspace(0,1,Nt);
@@ -78,7 +78,6 @@ for k = 2:Nt
     R_true(k,:,:) = R_next;
 end
 
-
 %% Data prep for data loss
 % Pick 3 anchor slices (early, mid, late)
 tIdx = round([1, Nt/2, Nt]);   % e.g., [1, 5, 10] if Nt=10
@@ -143,7 +142,7 @@ for epoch = 1:numEpochs
                                         tInt,xInt,yInt,collocBd,collocIC, ...
                                         beta,gamma,D_S,D_I,D_R, ...
                                         Xdata,Sdata,Idata,Rdata, ...
-                                        wPDE,wIC,wBC,wData);
+                                        wPDE,wIC,wBC,wData, collocInt);
 
     % Update network
     [net,avgGrad,avgSqGrad] = adamupdate(net,grads,avgGrad,avgSqGrad,epoch,learnRate);
@@ -165,7 +164,6 @@ for epoch = 1:numEpochs
     Gmean = mean([Gnorms.pde, Gnorms.ic, Gnorms.bc, Gnorms.data]);
     % Update each weight using GradNorm update rule
     alpha = 0.12;
-    
     targetPDE  = Gmean * (rPDE  ^ alpha);
     targetIC   = Gmean * (rIC   ^ alpha);
     targetBC   = Gmean * (rBC   ^ alpha);
@@ -230,21 +228,21 @@ I_pred_sum = squeeze(sum(I_pred,[2 3]));
 R_pred_sum = squeeze(sum(R_pred,[2 3]));
 
 %% Plot curves
-days = 1:Nt;
-figure;
-subplot(3,1,1)
-plot(days,S_true_sum,'b-',days,S_pred_sum,'r--','LineWidth',1.5)
-legend('True','Predicted'); ylabel('S total')
-
-subplot(3,1,2)
-plot(days,I_true_sum,'b-',days,I_pred_sum,'r--','LineWidth',1.5)
-legend('True','Predicted'); ylabel('I total')
-
-subplot(3,1,3)
-plot(days,R_true_sum,'b-',days,R_pred_sum,'r--','LineWidth',1.5)
-legend('True','Predicted'); ylabel('R total'); xlabel('Day')
-
-sgtitle('True vs PINN Predicted Epidemic Dynamics (spatial totals)')
+% days = 1:Nt;
+% figure;
+% subplot(3,1,1)
+% plot(days,S_true_sum,'b-',days,S_pred_sum,'r--','LineWidth',1.5)
+% legend('True','Predicted'); ylabel('S total')
+% 
+% subplot(3,1,2)
+% plot(days,I_true_sum,'b-',days,I_pred_sum,'r--','LineWidth',1.5)
+% legend('True','Predicted'); ylabel('I total')
+% 
+% subplot(3,1,3)
+% plot(days,R_true_sum,'b-',days,R_pred_sum,'r--','LineWidth',1.5)
+% legend('True','Predicted'); ylabel('R total'); xlabel('Day')
+% 
+% sgtitle('True vs PINN Predicted Epidemic Dynamics (spatial totals)')
 
 %% Heatmap comparisons
 selDays = [1, round(Nt/2), Nt];
@@ -496,41 +494,89 @@ function [losses, grads, Gnorms, Ybd, Yic, S0] = modelLossGradNorm(net,t,x,y, ..
                                   collocBd,collocIC, ...
                                   beta,gamma,D_S,D_I,D_R, ...
                                   Xdata,Sdata,Idata,Rdata, ...
-                                  wPDE,wIC,wBC,wData)
+                                  wPDE,wIC,wBC,wData, collocInt)
 
     % ---------------- Interior collocation points ----------------
-    Xall = dlarray([t; x; y],'CB');   % [3 × N]
-    Yall = forward(net,Xall);         % [3 × N]
-    S = Yall(1,:); I = Yall(2,:); R = Yall(3,:);
+    % Xall = dlarray([t; x; y],'CB');   % [3 × N]
+    % Yall = forward(net,Xall);         % [3 × N]
+    % S = Yall(1,:); I = Yall(2,:); R = Yall(3,:);
+    % 
+    % % --- Time derivatives ---
+    % S_t = dlgradient(sum(S),t,EnableHigherDerivatives=true);
+    % I_t = dlgradient(sum(I),t,EnableHigherDerivatives=true);
+    % R_t = dlgradient(sum(R),t,EnableHigherDerivatives=true);
+    % 
+    % % --- Spatial derivatives ---
+    % S_x = dlgradient(sum(S),x,EnableHigherDerivatives=true);
+    % S_y = dlgradient(sum(S),y,EnableHigherDerivatives=true);
+    % I_x = dlgradient(sum(I),x,EnableHigherDerivatives=true);
+    % I_y = dlgradient(sum(I),y,EnableHigherDerivatives=true);
+    % R_x = dlgradient(sum(R),x,EnableHigherDerivatives=true);
+    % R_y = dlgradient(sum(R),y,EnableHigherDerivatives=true);
+    % 
+    % S_xx = dlgradient(sum(S_x),x);
+    % S_yy = dlgradient(sum(S_y),y);
+    % I_xx = dlgradient(sum(I_x),x);
+    % I_yy = dlgradient(sum(I_y),y);
+    % R_xx = dlgradient(sum(R_x),x);
+    % R_yy = dlgradient(sum(R_y),y);
+    % 
+    % % ---------------- PDE residuals ----------------
+    % fS = S_t - (D_S*(S_xx+S_yy) - beta*S.*I);
+    % fI = I_t - (D_I*(I_xx+I_yy) + beta*S.*I - gamma*I);
+    % fR = R_t - (D_R*(R_xx+R_yy) + gamma*I);
+    % 
+    % losses.pde = mse(fS, zeros(size(fS),'like',fS)) ...
+    %     + mse(fI, zeros(size(fI),'like',fI)) ...
+    %     + mse(fR, zeros(size(fR),'like',fR));
+    % --------------------------PDE residuals over each day---------------
+    for day = 1:45
+        mask = (collocInt(:,1) >=day) & (collocInt(:,1) < day+1);
+        collocDay = collocInt(mask,:);
+        if isempty(collocDay)
+            continue
+        end
+        
+        Xday = dlarray(single(collocDay)', 'CB');
+        Yday = forward(net, Xday);
+        S = Yday(1,:);
+        I = Yday(2,:);
+        R = Yday(3,:);
 
-    % --- Time derivatives ---
-    S_t = dlgradient(sum(S),t,EnableHigherDerivatives=true);
-    I_t = dlgradient(sum(I),t,EnableHigherDerivatives=true);
-    R_t = dlgradient(sum(R),t,EnableHigherDerivatives=true);
+        % t = Xday(1,:);  % pull t-coordinates for each collocation point
+        % x = Xday(2,:);  % pull x-coordinates
+        % y = Xday(3,:);
 
-    % --- Spatial derivatives ---
-    S_x = dlgradient(sum(S),x,EnableHigherDerivatives=true);
-    S_y = dlgradient(sum(S),y,EnableHigherDerivatives=true);
-    I_x = dlgradient(sum(I),x,EnableHigherDerivatives=true);
-    I_y = dlgradient(sum(I),y,EnableHigherDerivatives=true);
-    R_x = dlgradient(sum(R),x,EnableHigherDerivatives=true);
-    R_y = dlgradient(sum(R),y,EnableHigherDerivatives=true);
+        S_t = dlgradient(sum(S), t, EnableHigherDerivatives=true);
+        I_t = dlgradient(sum(I), t, EnableHigherDerivatives=true);
+        R_t = dlgradient(sum(R), t, EnableHigherDerivatives=true);
 
-    S_xx = dlgradient(sum(S_x),x);
-    S_yy = dlgradient(sum(S_y),y);
-    I_xx = dlgradient(sum(I_x),x);
-    I_yy = dlgradient(sum(I_y),y);
-    R_xx = dlgradient(sum(R_x),x);
-    R_yy = dlgradient(sum(R_y),y);
+        S_x = dlgradient(sum(S),x,EnableHigherDerivatives=true);
+        S_y = dlgradient(sum(S),y,EnableHigherDerivatives=true);
+        I_x = dlgradient(sum(I),x,EnableHigherDerivatives=true);
+        I_y = dlgradient(sum(I),y,EnableHigherDerivatives=true);
+        R_x = dlgradient(sum(R),x,EnableHigherDerivatives=true);
+        R_y = dlgradient(sum(R),y,EnableHigherDerivatives=true);
 
-    % ---------------- PDE residuals ----------------
-    fS = S_t - (D_S*(S_xx+S_yy) - beta*S.*I);
-    fI = I_t - (D_I*(I_xx+I_yy) + beta*S.*I - gamma*I);
-    fR = R_t - (D_R*(R_xx+R_yy) + gamma*I);
+        S_xx = dlgradient(sum(S_x), x);
+        S_yy = dlgradient(sum(S_y),y);
+        I_xx = dlgradient(sum(I_x),x);
+        I_yy = dlgradient(sum(I_y),y);
+        R_xx = dlgradient(sum(R_x),x);
+        R_yy = dlgradient(sum(R_y),y);
+        length(S), length(I), length(S_xx), length(S_yy), length(S_x), length(I_x), length(I_xx), length(I_yy)
 
-    losses.pde = mse(fS, zeros(size(fS),'like',fS)) ...
-        + mse(fI, zeros(size(fI),'like',fI)) ...
-        + mse(fR, zeros(size(fR),'like',fR));
+        % --- PDE residuals ---
+        fS = S_t - (D_S*(S_xx+S_yy) - beta*S.*I);
+        fI = I_t - (D_I*(I_xx+I_yy) + beta*S.*I - gamma*I);
+        fR = R_t - (D_R*(R_xx+R_yy) + gamma*I);
+
+        lossDay = mse(fS, zeros(size(fS),'like',fS)) ...
+            + mse(fI, zeros(size(fI),'like',fI)) ...
+            + mse(fR, zeros(size(fR),'like',fR));
+        lossPDE = lossPDE + lossDay;
+    end
+    losses.pde = lossPDE;
 
     % ---------------- Boundary condition ----------------
     Xbd = dlarray(single(collocBd)','CB');

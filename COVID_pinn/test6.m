@@ -5,7 +5,7 @@ clear; clc;
 beta = 0.005; gamma = 0.1;
 D_S = 0.05; D_I = 0.05; D_R = 0.05;
 
-Nx = 4; Ny = 4; Nt = 10;
+Nx = 5; Ny = 5; Nt = 5;
 x = linspace(0,1,Nx);
 y = linspace(0,1,Ny);
 t = linspace(0,1,Nt);
@@ -33,7 +33,7 @@ layers = [
 net = dlnetwork(layers);
 
 %% Training setup
-numEpochs = 2000;
+numEpochs = 5;
 learnRate = 3e-3;
 avgGrad = []; avgSqGrad = [];
 % tInt = dlarray(collocInt(:,1)','CB');
@@ -150,197 +150,201 @@ end
 
 %% ---------------- Loss function ----------------
 % spatial gradients in both dimensions
-% function [loss,grads] = modelLoss(net,t,x,y,collocBd,collocIC, ...  
-%                                   beta,gamma,D_S,D_I,D_R)
-% 
-%     Np = numel(t);
-% 
-%     % Storage
-%     S_t = zeros(1,Np,'like',t); 
-%     I_t = S_t; 
-%     R_t = S_t;
-% 
-%     S_x = S_t; S_y = S_t; S_xx = S_t; S_yy = S_t;
-%     I_x = S_t; I_y = S_t; I_xx = S_t; I_yy = S_t;
-%     R_x = S_t; R_y = S_t; R_xx = S_t; R_yy = S_t;
-% 
-%     % Loop over collocation points
-%     for k = 1:Np
-%         t_k = t(k); x_k = x(k); y_k = y(k);
-% 
-%         % Input for single point
-%         Xk = dlarray([t_k; x_k; y_k],'CB');
-% 
-%         % Forward pass
-%         Yk = forward(net,Xk);  % [3×1]
-%         Sk = Yk(1); Ik = Yk(2); Rk = Yk(3);
-% 
-%         % Time derivatives
-%         S_t(k) = dlgradient(Sk, t_k, 'EnableHigherDerivatives', true);
-%         I_t(k) = dlgradient(Ik, t_k, 'EnableHigherDerivatives', true);
-%         R_t(k) = dlgradient(Rk, t_k, 'EnableHigherDerivatives', true);
-% 
-%         % Spatial derivatives
-%         sx = dlgradient(Sk, x_k, 'EnableHigherDerivatives', true);
-%         sy = dlgradient(Sk, y_k, 'EnableHigherDerivatives', true);
-%         ix = dlgradient(Ik, x_k, 'EnableHigherDerivatives', true);
-%         iy = dlgradient(Ik, y_k, 'EnableHigherDerivatives', true);
-%         rx = dlgradient(Rk, x_k, 'EnableHigherDerivatives', true);
-%         ry = dlgradient(Rk, y_k, 'EnableHigherDerivatives', true);
-% 
-%         sxx = dlgradient(sx, x_k);
-%         syy = dlgradient(sy, y_k);
-%         ixx = dlgradient(ix, x_k);
-%         iyy = dlgradient(iy, y_k);
-%         rxx = dlgradient(rx, x_k);
-%         ryy = dlgradient(ry, y_k);
-% 
-%         % Assign
-%         S_x(k) = sx; S_y(k) = sy; S_xx(k) = sxx; S_yy(k) = syy;
-%         I_x(k) = ix; I_y(k) = iy; I_xx(k) = ixx; I_yy(k) = iyy;
-%         R_x(k) = rx; R_y(k) = ry; R_xx(k) = rxx; R_yy(k) = ryy;
-%     end
-% 
-%     % PDE residuals
-%     % Need forward pass again for all points (faster batch)
-%     Xall = [t; x; y];
-%     Yall = forward(net,Xall);
-%     S = Yall(1,:); I = Yall(2,:); R = Yall(3,:);
-% 
-%     fS = S_t - (D_S*(S_xx+S_yy) - beta*S.*I);
-%     fI = I_t - (D_I*(I_xx+I_yy) + beta*S.*I - gamma*I);
-%     fR = R_t - (D_R*(R_xx+R_yy) + gamma*I);
-%     lossPDE = mse(fS,0) + mse(fI,0) + mse(fR,0);
-% 
-%     % Boundary condition: I=0
-%     Xbd = dlarray(single(collocBd)','CB');
-%     Ybd = forward(net,Xbd);
-%     lossBC = mse(Ybd(2,:),0);
-% 
-%     % Initial condition
-%     Xic = dlarray(single(collocIC)','CB');
-%     Yic = forward(net,Xic);
-%     S0 = 1.0; 
-%     I0 = exp(-50*((Xic(2,:)-0.5).^2+(Xic(3,:)-0.5).^2));
-%     R0 = 0.0;
-%     lossIC = mse(Yic(1,:),S0) + mse(Yic(2,:),I0) + mse(Yic(3,:),R0);
-% 
-%     % Total loss
-%     loss = lossPDE + lossBC + lossIC;
-%     grads = dlgradient(loss,net.Learnables);
-% end
-
-%% calculate gradients by summing over all points
-function [loss,grads] = modelLoss(net,t,x,y,collocBd,collocIC, ...
+function [loss,grads] = modelLoss(net,t,x,y,collocBd,collocIC, ...  
                                   beta,gamma,D_S,D_I,D_R)
 
-    % Pack all interior collocation points into one dlarray
-    Xall = dlarray([t; x; y],'CB');   % [3 × N]
-    Yall = forward(net,Xall);         % [3 × N]
+    Np = numel(t);
 
+    % Storage
+    S_t = zeros(1,Np,'like',t); 
+    I_t = S_t; 
+    R_t = S_t;
+
+    S_x = S_t; S_y = S_t; S_xx = S_t; S_yy = S_t;
+    I_x = S_t; I_y = S_t; I_xx = S_t; I_yy = S_t;
+    R_x = S_t; R_y = S_t; R_xx = S_t; R_yy = S_t;
+
+    % Loop over collocation points
+    for k = 1:Np
+        t_k = t(k); x_k = x(k); y_k = y(k);
+
+        % Input for single point
+        Xk = dlarray([t_k; x_k; y_k],'CB');
+
+        % Forward pass
+        Yk = forward(net,Xk);  % [3×1]
+        Sk = Yk(1); Ik = Yk(2); Rk = Yk(3);
+
+        % Time derivatives
+        S_t(k) = dlgradient(Sk, t_k, 'EnableHigherDerivatives', true);
+        I_t(k) = dlgradient(Ik, t_k, 'EnableHigherDerivatives', true);
+        R_t(k) = dlgradient(Rk, t_k, 'EnableHigherDerivatives', true);
+
+        % Spatial derivatives
+        sx = dlgradient(Sk, x_k, 'EnableHigherDerivatives', true);
+        sy = dlgradient(Sk, y_k, 'EnableHigherDerivatives', true);
+        ix = dlgradient(Ik, x_k, 'EnableHigherDerivatives', true);
+        iy = dlgradient(Ik, y_k, 'EnableHigherDerivatives', true);
+        rx = dlgradient(Rk, x_k, 'EnableHigherDerivatives', true);
+        ry = dlgradient(Rk, y_k, 'EnableHigherDerivatives', true);
+
+        sxx = dlgradient(sx, x_k);
+        syy = dlgradient(sy, y_k);
+        ixx = dlgradient(ix, x_k);
+        iyy = dlgradient(iy, y_k);
+        rxx = dlgradient(rx, x_k);
+        ryy = dlgradient(ry, y_k);
+
+        % Assign
+        S_x(k) = sx; S_y(k) = sy; S_xx(k) = sxx; S_yy(k) = syy;
+        I_x(k) = ix; I_y(k) = iy; I_xx(k) = ixx; I_yy(k) = iyy;
+        R_x(k) = rx; R_y(k) = ry; R_xx(k) = rxx; R_yy(k) = ryy;
+    end
+
+    % PDE residuals
+    % Need forward pass again for all points (faster batch)
+    Xall = [t; x; y];
+    Yall = forward(net,Xall);
     S = Yall(1,:); I = Yall(2,:); R = Yall(3,:);
 
-    % --- Time derivatives (vectorized with sum-trick) ---
-    S_t = dlgradient(sum(S),t,EnableHigherDerivatives=true);
-    I_t = dlgradient(sum(I),t,EnableHigherDerivatives=true);
-    R_t = dlgradient(sum(R),t,EnableHigherDerivatives=true);
-
-    % --- Spatial derivatives (vectorized with sum-trick) ---
-    S_x = dlgradient(sum(S),x,EnableHigherDerivatives=true);
-    S_y = dlgradient(sum(S),y,EnableHigherDerivatives=true);
-    I_x = dlgradient(sum(I),x,EnableHigherDerivatives=true);
-    I_y = dlgradient(sum(I),y,EnableHigherDerivatives=true);
-    R_x = dlgradient(sum(R),x,EnableHigherDerivatives=true);
-    R_y = dlgradient(sum(R),y,EnableHigherDerivatives=true);
-
-    S_xx = dlgradient(sum(S_x),x);
-    S_yy = dlgradient(sum(S_y),y);
-    I_xx = dlgradient(sum(I_x),x);
-    I_yy = dlgradient(sum(I_y),y);
-    R_xx = dlgradient(sum(R_x),x);
-    R_yy = dlgradient(sum(R_y),y);
-
-    % --- PDE residuals ---
-    dt = 0.1;
-    fS = S_t - dt * (D_S*(S_xx+S_yy) - beta*S.*I);
-    fI = I_t - dt * (D_I*(I_xx+I_yy) + beta*S.*I - gamma*I);
-    fR = R_t - dt * (D_R*(R_xx+R_yy) + gamma*I);
-
+    fS = S_t - (D_S*(S_xx+S_yy) - beta*S.*I);
+    fI = I_t - (D_I*(I_xx+I_yy) + beta*S.*I - gamma*I);
+    fR = R_t - (D_R*(R_xx+R_yy) + gamma*I);
     lossPDE = mse(fS, zeros(size(fS),'like',fS)) ...
         + mse(fI, zeros(size(fI),'like',fI)) ...
         + mse(fR, zeros(size(fR),'like',fR));
 
-    % --- Boundary condition: I=0 ---
+    % Boundary condition: I=0
     Xbd = dlarray(single(collocBd)','CB');
     Ybd = forward(net,Xbd);
     lossBC = mse(Ybd(2,:), zeros(size(Ybd(2,:)),'like',Ybd));
 
-    % --- Initial condition ---
+    % Initial condition
     Xic = dlarray(single(collocIC)','CB');
     Yic = forward(net,Xic);
-    S0 = 50 * ones(size(Yic(1,:)),'like',Yic);   % Susceptibles in thousands
-    % Infected: 50 only at center cell
-    Nx = 10; Ny = 10;
-    x_coords = Xic(2,:);   % x ∈ [0,1]
-    y_coords = Xic(3,:);   % y ∈ [0,1]
+    S0 = 1.0; 
+    I0 = exp(-50*((Xic(2,:)-0.5).^2+(Xic(3,:)-0.5).^2));
+    R0 = 0.0;
+    % lossIC = mse(Yic(1,:), S0) ...
+    %    + 5*mse(Yic(2,:), I0) ...
+    %    + mse(Yic(3,:), R0);
 
-    % Find closest grid point to (0.5,0.5)
-    [~,centerIdx] = min((x_coords-0.5).^2 + (y_coords-0.5).^2);
-
-    I0 = zeros(size(Yic(2,:)),'like',Yic);
-    I0(centerIdx) = 50;
-    % % Reshape back to [Nx × Ny] grid
-    % Nx = 10; Ny = 10;
-    % xgrid = linspace(0,1,Nx);
-    % ygrid = linspace(0,1,Ny);
-    % % Reshape to 2D grids
-    % S0_grid = reshape(extractdata(S0), [Nx,Ny]);
-    % I0_grid = reshape(extractdata(I0), [Nx,Ny]);
-    % 
-    % % Heatmaps side by side
-    % figure;
-    % subplot(1,2,1);
-    % imagesc(xgrid,ygrid,S0_grid'); axis equal tight; colorbar;
-    % title('Initial Susceptible S0');
-    % xlabel('x'); ylabel('y');
-    % 
-    % subplot(1,2,2);
-    % imagesc(xgrid,ygrid,I0_grid'); axis equal tight; colorbar;
-    % title('Initial Infected I0');
-    % xlabel('x'); ylabel('y');
-    % 
-    % % Optional 3D surfaces
-    % figure;
-    % [Xmesh,Ymesh] = meshgrid(xgrid,ygrid);
-    % subplot(1,2,1);
-    % surf(Xmesh,Ymesh,S0_grid','EdgeColor','none'); colormap jet; colorbar;
-    % title('S0 (flat field)'); xlabel('x'); ylabel('y'); zlabel('S0');
-    % 
-    % subplot(1,2,2);
-    % surf(Xmesh,Ymesh,I0_grid','EdgeColor','none'); colormap jet; colorbar;
-    % title('I0 (Gaussian hotspot)'); xlabel('x'); ylabel('y'); zlabel('I0');
-
-
-
-    R0 = zeros(size(Yic(3,:)),'like',Yic);       % Initially recovered
-    % fprintf('true S: %f, pred S: %f', S0, Yic(1,1));
-    % fprintf('true I: %f, pred I: %f', I0, Yic(2,:));
-    % lossIC = mse(Yic(1,:), S0)/ mean(S0.^2) ...
-    %    + 5*mse(Yic(2,:), I0)/ mean(I0.^2) ...
-    %    + mse(Yic(3,:), R0)/ max(1, mean(R0.^2));
-    lossIC = mse(Yic(1,:), S0) ...
-       + 5*mse(Yic(2,:), I0) ...
-       + mse(Yic(3,:), R0);
-
-    % --- Total loss ---
-    % disp("lossPDE", lossPDE, "lossBC", lossBC, "lossIC", lossIC)
-    fprintf('lossPDE: %f, lossBC: %f, lossIC: %f\n', lossPDE, lossBC, lossIC);
-    loss = lossPDE + lossBC + 10*lossIC;
-    disp(loss);
-
-    % Gradients w.r.t. learnable params
+    % Total loss
+    loss = lossPDE + lossBC %+ lossIC;
     grads = dlgradient(loss,net.Learnables);
 end
+
+%% calculate gradients by summing over all points
+% function [loss,grads] = modelLoss(net,t,x,y,collocBd,collocIC, ...
+%                                   beta,gamma,D_S,D_I,D_R)
+% 
+%     % Pack all interior collocation points into one dlarray
+%     Xall = dlarray([t; x; y],'CB');   % [3 × N]
+%     Yall = forward(net,Xall);         % [3 × N]
+% 
+%     S = Yall(1,:); I = Yall(2,:); R = Yall(3,:);
+% 
+%     % --- Time derivatives (vectorized with sum-trick) ---
+%     S_t = dlgradient(sum(S),t,EnableHigherDerivatives=true);
+%     I_t = dlgradient(sum(I),t,EnableHigherDerivatives=true);
+%     R_t = dlgradient(sum(R),t,EnableHigherDerivatives=true);
+% 
+%     % --- Spatial derivatives (vectorized with sum-trick) ---
+%     S_x = dlgradient(sum(S),x,EnableHigherDerivatives=true);
+%     S_y = dlgradient(sum(S),y,EnableHigherDerivatives=true);
+%     I_x = dlgradient(sum(I),x,EnableHigherDerivatives=true);
+%     I_y = dlgradient(sum(I),y,EnableHigherDerivatives=true);
+%     R_x = dlgradient(sum(R),x,EnableHigherDerivatives=true);
+%     R_y = dlgradient(sum(R),y,EnableHigherDerivatives=true);
+% 
+%     S_xx = dlgradient(sum(S_x),x);
+%     S_yy = dlgradient(sum(S_y),y);
+%     I_xx = dlgradient(sum(I_x),x);
+%     I_yy = dlgradient(sum(I_y),y);
+%     R_xx = dlgradient(sum(R_x),x);
+%     R_yy = dlgradient(sum(R_y),y);
+% 
+%     % --- PDE residuals ---
+%     dt = 0.1;
+%     fS = S_t - dt * (D_S*(S_xx+S_yy) - beta*S.*I);
+%     fI = I_t - dt * (D_I*(I_xx+I_yy) + beta*S.*I - gamma*I);
+%     fR = R_t - dt * (D_R*(R_xx+R_yy) + gamma*I);
+% 
+%     lossPDE = mse(fS, zeros(size(fS),'like',fS)) ...
+%         + mse(fI, zeros(size(fI),'like',fI)) ...
+%         + mse(fR, zeros(size(fR),'like',fR));
+% 
+%     % --- Boundary condition: I=0 ---
+%     Xbd = dlarray(single(collocBd)','CB');
+%     Ybd = forward(net,Xbd);
+%     lossBC = mse(Ybd(2,:), zeros(size(Ybd(2,:)),'like',Ybd));
+% 
+%     % --- Initial condition ---
+%     Xic = dlarray(single(collocIC)','CB');
+%     Yic = forward(net,Xic);
+%     S0 = 50 * ones(size(Yic(1,:)),'like',Yic);   % Susceptibles in thousands
+%     % Infected: 50 only at center cell
+%     Nx = 10; Ny = 10;
+%     x_coords = Xic(2,:);   % x ∈ [0,1]
+%     y_coords = Xic(3,:);   % y ∈ [0,1]
+% 
+%     % Find closest grid point to (0.5,0.5)
+%     [~,centerIdx] = min((x_coords-0.5).^2 + (y_coords-0.5).^2);
+% 
+%     I0 = zeros(size(Yic(2,:)),'like',Yic);
+%     I0(centerIdx) = 50;
+%     % % Reshape back to [Nx × Ny] grid
+%     % Nx = 10; Ny = 10;
+%     % xgrid = linspace(0,1,Nx);
+%     % ygrid = linspace(0,1,Ny);
+%     % % Reshape to 2D grids
+%     % S0_grid = reshape(extractdata(S0), [Nx,Ny]);
+%     % I0_grid = reshape(extractdata(I0), [Nx,Ny]);
+%     % 
+%     % % Heatmaps side by side
+%     % figure;
+%     % subplot(1,2,1);
+%     % imagesc(xgrid,ygrid,S0_grid'); axis equal tight; colorbar;
+%     % title('Initial Susceptible S0');
+%     % xlabel('x'); ylabel('y');
+%     % 
+%     % subplot(1,2,2);
+%     % imagesc(xgrid,ygrid,I0_grid'); axis equal tight; colorbar;
+%     % title('Initial Infected I0');
+%     % xlabel('x'); ylabel('y');
+%     % 
+%     % % Optional 3D surfaces
+%     % figure;
+%     % [Xmesh,Ymesh] = meshgrid(xgrid,ygrid);
+%     % subplot(1,2,1);
+%     % surf(Xmesh,Ymesh,S0_grid','EdgeColor','none'); colormap jet; colorbar;
+%     % title('S0 (flat field)'); xlabel('x'); ylabel('y'); zlabel('S0');
+%     % 
+%     % subplot(1,2,2);
+%     % surf(Xmesh,Ymesh,I0_grid','EdgeColor','none'); colormap jet; colorbar;
+%     % title('I0 (Gaussian hotspot)'); xlabel('x'); ylabel('y'); zlabel('I0');
+% 
+% 
+% 
+%     R0 = zeros(size(Yic(3,:)),'like',Yic);       % Initially recovered
+%     % fprintf('true S: %f, pred S: %f', S0, Yic(1,1));
+%     % fprintf('true I: %f, pred I: %f', I0, Yic(2,:));
+%     % lossIC = mse(Yic(1,:), S0)/ mean(S0.^2) ...
+%     %    + 5*mse(Yic(2,:), I0)/ mean(I0.^2) ...
+%     %    + mse(Yic(3,:), R0)/ max(1, mean(R0.^2));
+%     lossIC = mse(Yic(1,:), S0) ...
+%        + 5*mse(Yic(2,:), I0) ...
+%        + mse(Yic(3,:), R0);
+% 
+%     % --- Total loss ---
+%     % disp("lossPDE", lossPDE, "lossBC", lossBC, "lossIC", lossIC)
+%     fprintf('lossPDE: %f, lossBC: %f, lossIC: %f\n', lossPDE, lossBC, lossIC);
+%     loss = lossPDE + lossBC + 10*lossIC;
+%     disp(loss);
+% 
+%     % Gradients w.r.t. learnable params
+%     grads = dlgradient(loss,net.Learnables);
+% end
 
 %% calculate gradients by summing over all points
 % function [loss,grads] = modelLoss(net,t,x,y,collocBd,collocIC, ...
