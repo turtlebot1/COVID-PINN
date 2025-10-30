@@ -4,7 +4,7 @@ parallel.gpu.enableCUDAForwardCompatibility(true)
 
 %% Parameters
 load('params_mid.mat')
-params.e = 0.02;
+params.e = 0.002;
 gpuDevice(1);
 
 Nx = 60; Ny = 60; Nt = 20;
@@ -116,7 +116,7 @@ w_ic   = 1.0;
 w_data = 1.0;
 w_bc = 1.0;
 
-numEpochs   = 25000;
+numEpochs   = 22000;
 learnRate    = 8e-4;
 miniColloc   = 4096;  % collocation samples per step
 miniDataT    = 3;     % number of time frames for data-fitting each step
