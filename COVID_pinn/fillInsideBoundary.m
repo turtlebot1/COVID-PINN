@@ -77,6 +77,7 @@ function [S_ini, I_ini, R_ini, S_filled, I_filled, R_filled] = fillInsideBoundar
 
     % 4-connected neighbor kernel (up, down, left, right)
     kernel = [0 1 0; 1 0 1; 0 1 0];
+    epsilon = 1e-10;
 
     % Mask of interior cells (not boundary)
     interiorMask = (boundaryMap == 0);
@@ -107,12 +108,9 @@ function [S_ini, I_ini, R_ini, S_filled, I_filled, R_filled] = fillInsideBoundar
             fillMask = zeroMask & (S_neighbors_count > 0);
 
             % Fill using neighbor average
-            S_slice(fillMask) = S_neighbors_sum(fillMask) ./ S_neighbors_count(fillMask);
-            I_slice(fillMask) = I_neighbors_sum(fillMask) ./ I_neighbors_count(fillMask);
-            R_slice(fillMask) = R_neighbors_sum(fillMask) ./ R_neighbors_count(fillMask);
-
-            % Update zero mask
-            zeroMask = (S_slice == 0) & interiorMask;
+            S_slice(fillMask) = S_neighbors_sum(fillMask) ./ (S_neighbors_count(fillMask) + epsilon);
+            I_slice(fillMask) = I_neighbors_sum(fillMask) ./ (I_neighbors_count(fillMask) + epsilon);
+            R_slice(fillMask) = R_neighbors_sum(fillMask) ./ (R_neighbors_count(fillMask) + epsilon);
 
             % Stop early if nothing to fill
             if ~any(zeroMask(:))

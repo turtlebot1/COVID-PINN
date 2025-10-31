@@ -4,13 +4,11 @@ parallel.gpu.enableCUDAForwardCompatibility(true)
 
 %% Parameters
 load('params_mid.mat')
-params.e = 0.002;
+params.e = 0.0001;
+params.phi = 4.69e-4;
+params.theta = 2.8e-15;
+% params.eta_Lat = 5e-5;
 gpuDevice(1);
-
-Nx = 60; Ny = 60; Nt = 20;
-x = linspace(0,1,Nx);
-y = linspace(0,1,Ny);
-t = linspace(0,1,Nt);
 
 %% Environment
 env = load('env_updated_boundary.mat')
@@ -116,7 +114,7 @@ w_ic   = 1.0;
 w_data = 1.0;
 w_bc = 1.0;
 
-numEpochs   = 22000;
+numEpochs   = 30000;
 learnRate    = 8e-4;
 miniColloc   = 4096;  % collocation samples per step
 miniDataT    = 3;     % number of time frames for data-fitting each step

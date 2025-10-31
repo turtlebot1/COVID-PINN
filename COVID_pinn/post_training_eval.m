@@ -1,12 +1,5 @@
-%% ===== Post-training evaluation =====
-Nx = 60; Ny = 60; Nt = 45;
-
-% Normalization functions (same as in make_PINN_colloc_points)
-normX = @(idx) (idx - 1) / (Nx - 1);
-normY = @(idx) (idx - 1) / (Ny - 1);
-normT = @(idx) (idx - 1) / (Nt - 1);
-
 S_pred_total = zeros(Nt,1);
+L_pred_total = zeros(Nt,1);
 I_pred_total = zeros(Nt,1);
 R_pred_total = zeros(Nt,1);
 % Initial condition
@@ -22,30 +15,45 @@ sumI = sum(I0_hat);
 sumR = sum(R0_hat);
 
 for k = 1:Nt
-    % Normalized time
-    t_k = single(normT(k));
+    dayPts = getCollocPointsForDay(collocPts, k, Nt);
+    x = dlarray(single(dayPts(:,1)'), 'CB');
+    y = dlarray(single(dayPts(:,2)'), 'CB');
+    t = dlarray(single(dayPts(:,3)'), 'CB');
+    
+    Xday = [x; y; t];
+    Yall = predict(net, Xday);
 
-    % Normalized grid
-    [xg, yg] = ndgrid(1:Nx, 1:Ny);
-    x_norm = single(normX(xg(:)));
-    y_norm = single(normY(yg(:)));
-    t_norm = t_k * ones(numel(x_norm), 1, 'single');
+    % % Extract predictions
+    % S_hat = reshape(extractdata(Yall(1,:)), Nx, Ny);
+    % I_hat = reshape(extractdata(Yall(2,:)), Nx, Ny);
+    % R_hat = reshape(extractdata(Yall(3,:)), Nx, Ny);
+    % 
+    % % Sum spatially
+    % S_pred_total(k) = sum(S_hat(:));
+    % I_pred_total(k) = sum(I_hat(:));
+    % R_pred_total(k) = sum(R_hat(:));
+    % ---- Extract predicted fields ----
+    S_hat = extractdata(Yall(1,:));
+    L_hat = extractdata(Yall(2,:));
+    I_hat = extractdata(Yall(3,:));
+    R_hat = extractdata(Yall(4,:));
+    
+    % ---- Reshape to 2D grid (Nx × Ny) ----
+    try
+        S_hat = reshape(S_hat, Nx, Ny);
+        L_hat = reshape(L_hat, Nx, Ny);
+        I_hat = reshape(I_hat, Nx, Ny);
+        R_hat = reshape(R_hat, Nx, Ny);
+    catch
+        % fallback if interior points < full grid size
+        warning('Day %d: cannot reshape to full Nx×Ny; using partial region only.', k);
+    end
 
-    % Convert to dlarray
-    Xdl = dlarray([x_norm'; y_norm'; t_norm'], 'CB');
-
-    % Forward pass (no gradients)
-    Yall = predict(net, Xdl);   % or forward(net, Xdl)
-
-    % Extract predictions
-    S_hat = reshape(extractdata(Yall(1,:)), Nx, Ny);
-    I_hat = reshape(extractdata(Yall(2,:)), Nx, Ny);
-    R_hat = reshape(extractdata(Yall(3,:)), Nx, Ny);
-
-    % Sum spatially
-    S_pred_total(k) = sum(S_hat(:));
-    I_pred_total(k) = sum(I_hat(:));
-    R_pred_total(k) = sum(R_hat(:));
+    % ---- Compute total sums for this day ----
+    S_pred_total(k) = sum(S_hat(:), 'omitnan');
+    L_pred_total(k) = sum(L_hat(:), 'omitnan');
+    I_pred_total(k) = sum(I_hat(:), 'omitnan');
+    R_pred_total(k) = sum(R_hat(:), 'omitnan');
 end
 
 % Append initial condition
@@ -80,3 +88,12 @@ xlabel('Day (t)');
 ylabel('Total population (summed over grid)');
 title('PINN Predicted vs True SIR Dynamics');
 grid on;
+
+function dayPoints = getCollocPointsForDay(collocPts, dayIdx, Nt)
+    % Convert day index (1...Nt) to normalized time
+    normT = (dayIdx - 1) / (Nt - 1);
+    
+    % Logical mask to select only points for this day
+    mask = abs(collocPts(:,3) - normT) < 1e-6;  % numerical tolerance
+    dayPoints = collocPts(mask, :);
+end

@@ -61,7 +61,7 @@ function [loss, parts, grads] = modelGradients(net, p, IPmask, ICmask, BCmask, S
 
     % ===== boundary loss =============
     Xb = dlarray(BCmask', 'CB');
-        Yb = forward(net, Xb);   % [3 x Nb]
+    Yb = forward(net, Xb);   % [3 x Nb]
 
     S_bc_target = dlarray(ones(size(Yb(1,:)), 'like', Yb));
     I_bc_target = dlarray(zeros(size(Yb(3,:)), 'like', Yb));
